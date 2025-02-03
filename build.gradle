@@ -167,3 +167,15 @@ jsonSchema2Pojo {
 	annotationStyle = 'jackson2'
 	outputEncoding = "UTF-8"
 }
+
+plugins {
+  id "org.sonarqube" version "6.0.1.5171"
+}
+
+sonar {
+  properties {
+    property "sonar.projectKey", "Zr0AM_dockerDev1"
+    property "sonar.organization", "zr0am"
+    property "sonar.host.url", "https://sonarcloud.io"
+  }
+}
