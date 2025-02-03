@@ -1,0 +1,169 @@
+import org.apache.tools.ant.filters.ReplaceTokens
+
+buildscript {
+	dependencies{
+		classpath 'org.jsonschema2pojo:jsonschema2pojo-gradle-plugin:1.2.2'
+	}
+}
+
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.4.2'
+	id 'io.spring.dependency-management' version '1.1.7'
+	id 'war'
+	id 'maven-publish'
+	id 'jacoco'
+}
+
+group = 'com.docker'
+version = '0.0.1'
+
+apply plugin: 'jsonschema2pojo'
+apply plugin: 'maven-publish'
+
+def buildNumber = System.getenv("BUILD_NUMBER") ?: "0"
+//version = "${project_release}.${build_number}"
+// def warFileName = "${project_name}-${project_version}.war"
+// group = project_group
+
+configurations.archives.canBeResolved=true
+
+ext {
+	set('build.timestamp', (new Date()).format("yyyMMddHHmmss"))
+	set('buildNumber', System.getProperty("BUILD_NUMBER") ?: "0")
+	set("groupId","${group}")
+	set('snippetsDir', file("build/generated-snippets"))
+}
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(23)
+	}
+}
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.jsonschema2pojo:jsonschema2pojo-gradle-plugin:1.2.2'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test' // deprecated
+
+	implementation 'org.springframework.boot:spring-boot-starter-batch'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-data-rest'
+	implementation 'org.springframework.boot:spring-boot-starter-freemarker'
+	implementation 'org.springframework.boot:spring-boot-starter-groovy-templates'
+	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	compileOnly 'org.projectlombok:lombok'
+	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+	developmentOnly 'org.springframework.boot:spring-boot-docker-compose'
+	runtimeOnly 'com.microsoft.sqlserver:mssql-jdbc'
+	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+	annotationProcessor 'org.projectlombok:lombok'
+	
+	testImplementation 'org.springframework.batch:spring-batch-test'
+	testImplementation 'org.springframework.restdocs:spring-restdocs-mockmvc'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+publishing {
+	publications {
+		myWar(MavenPublication) {
+			artifact bootWar
+		}
+	}
+}
+
+tasks.register("incrementVersion") {
+    doFirst {
+        def ver = version
+        println ver
+        String lastNumber = ver.substring(ver.lastIndexOf('.') + 1)
+        int increment = lastNumber.toInteger() + 1
+        println increment
+
+        String firstNumber = ver.substring(0, ver.lastIndexOf("."))
+        println firstNumber
+        String result = buildFile.getText().replaceFirst("version='$version'","version='" + firstNumber + "." + increment + "'")
+        buildFile.setText(result)
+    }
+}
+
+jar.dependsOn incrementVersion
+bootJar.dependsOn incrementVersion
+
+bootJar {
+    doFirst {
+        manifest {
+            attributes(
+                    'Main-Class': 'com.example.appinfo.AppinfoApplication',
+                    'Implementation-Title': 'Application Info project',
+                    'Implementation-Version': "${version}"
+            )
+        }
+    }
+}
+
+processResources() {
+
+	expand(project.properties)
+
+	with copySpec {
+		from 'src/main/resources'
+		include 'config/application*.yml'
+		include 'config/application*.yaml'
+		include 'config/application*.properties'
+		duplicatesStrategy 'include'
+		project.properties.findAll().each {
+			prop ->
+				if (prop.value != null && (prop.value instanceof String || prop.value instanceof org.codehaus.groovy.runtime.GStringImpl)){
+					filter(ReplaceTokens, tokens: [ (prop.key): prop.value.toString()])
+					filter(ReplaceTokens, tokens: [ ('project.' + prop.key): prop.value.toString()])
+				}
+		}
+	}
+}
+
+tasks.named('test') {
+	outputs.dir snippetsDir
+	useJUnitPlatform()
+}
+
+war {
+	enabled=false
+}
+
+// bootWar {
+// 	enabled = true
+// 	mainClass = "${appStartClassName}"
+// 	archiveClassifier.set("")
+// }
+
+jsonSchema2Pojo {
+	source = files("src/main/json")
+	targetPackage = "com.docker.dev"
+
+	includeJsr303Annotations = true
+	includeAdditionalProperties = false
+	dateType = "java.time.LocalDate"
+	dateTimeType = "java.time.Instant"
+	useBigDecimals = true
+	useBigIntegers = true
+	initializeCollections = true
+	includeHashcodeAndEquals true
+
+	includeToString = false
+	removeOldOutput = true
+	annotationStyle = 'jackson2'
+	outputEncoding = "UTF-8"
+}
